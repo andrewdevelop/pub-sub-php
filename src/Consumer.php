@@ -17,6 +17,7 @@ class Consumer implements ConsumerContract
     protected bool $shouldQuit = false;
     protected bool $shouldRestart = false;
     protected ?string $consumerTag = null;
+    protected bool $signalHandlingEnabled = false;
 
     public function __construct(
         protected readonly InternalConfig $config,
@@ -24,10 +25,14 @@ class Consumer implements ConsumerContract
     {
     }
 
-    public function consume(callable $callback, int $timeoutSeconds = 0): mixed
+    public function consume(callable $callback, int $timeoutSeconds = 0, bool $enableSignalHandling = true): mixed
     {
-        $this->setupSignals();
-
+        $this->signalHandlingEnabled = $enableSignalHandling && extension_loaded('pcntl');
+        
+        if ($this->signalHandlingEnabled) {
+            pcntl_async_signals(true);
+            $this->setupSignals();
+        }
         $startTime = time();
         $this->connect($this->config);
         $this->setupTopology($this->config);
@@ -60,8 +65,12 @@ class Consumer implements ConsumerContract
             );
 
             while ($this->channel->is_consuming() && !$this->shouldQuit) {
-                if (extension_loaded('pcntl')) {
+                if ($this->signalHandlingEnabled) {
                     pcntl_signal_dispatch();
+                }
+
+                if ($this->shouldQuit) {
+                    break;
                 }
 
                 if ($timeoutSeconds > 0 && (time() - $startTime) >= $timeoutSeconds) {
@@ -70,6 +79,7 @@ class Consumer implements ConsumerContract
 
                 try {
                     $waitTimeout = $timeoutSeconds > 0 ? min($timeoutSeconds - (time() - $startTime), $this->config->connection_timeout) : $this->config->connection_timeout;
+                    
                     $this->channel->wait(null, false, (float)$waitTimeout);
                 } catch (\PhpAmqpLib\Exception\AMQPConnectionClosedException|\PhpAmqpLib\Exception\AMQPIOException $e) {
                     $this->logger?->warning("connection lost, attempting to reconnect: " . $e->getMessage());
@@ -205,8 +215,7 @@ class Consumer implements ConsumerContract
     public function signalHandler(int $signalNumber): void
     {
         match ($signalNumber) {
-            SIGTERM, SIGQUIT => $this->shouldQuit = true,
-            SIGINT => $this->shouldQuit = true,
+            SIGTERM, SIGQUIT, SIGINT => $this->shouldQuit = true,
             SIGHUP => $this->shouldRestart = true,
             default => null,
         };

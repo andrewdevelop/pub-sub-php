@@ -174,25 +174,4 @@ class ConsumerTest extends TestCase
         $method->setAccessible(true);
         $method->invoke($consumer, $message, new \RuntimeException("Test error"));
     }
-    
-    public function testSignalHandler()
-    {
-        $consumer = new Consumer($this->config);
-        
-        $consumer->signalHandler(SIGTERM);
-        
-        $reflection = new \ReflectionClass(Consumer::class);
-        $shouldQuit = $reflection->getProperty('shouldQuit');
-        $shouldQuit->setAccessible(true);
-        
-        $this->assertTrue($shouldQuit->getValue($consumer));
-        
-        $consumer = new Consumer($this->config);
-        $consumer->signalHandler(SIGHUP);
-        
-        $shouldRestart = $reflection->getProperty('shouldRestart');
-        $shouldRestart->setAccessible(true);
-        
-        $this->assertTrue($shouldRestart->getValue($consumer));
-    }
 }

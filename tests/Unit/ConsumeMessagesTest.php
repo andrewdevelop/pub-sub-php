@@ -8,15 +8,22 @@ use Core\Messaging\Console\ConsumeMessages;
 use Core\Messaging\Contracts\Consumer;
 use PhpAmqpLib\Message\AMQPMessage;
 use PHPUnit\Framework\TestCase;
+use Symfony\Component\Console\Input\ArrayInput;
 
 class ConsumeMessagesTest extends TestCase
 {
-    public function testHandleDispatchesEvent()
+    private function createCommand(EventDispatcher $dispatcher, Consumer $consumer): ConsumeMessages
+    {
+        $command = new ConsumeMessages($dispatcher, $consumer);
+        $command->setInput(new ArrayInput([]));
+        return $command;
+    }
+    public function testHandleDispatchesEvent(): void
     {
         $dispatcher = $this->createMock(EventDispatcher::class);
         $consumer = $this->createMock(Consumer::class);
 
-        $command = new ConsumeMessages($dispatcher, $consumer);
+        $command = $this->createCommand($dispatcher, $consumer);
 
         $consumer->expects($this->once())
             ->method('consume')
@@ -34,12 +41,12 @@ class ConsumeMessagesTest extends TestCase
         $command->handle();
     }
     
-    public function testHandleThrowsOnInvalidPayload()
+    public function testHandleThrowsOnInvalidPayload(): void
     {
         $dispatcher = $this->createMock(EventDispatcher::class);
         $consumer = $this->createMock(Consumer::class);
 
-        $command = new ConsumeMessages($dispatcher, $consumer);
+        $command = $this->createCommand($dispatcher, $consumer);
 
         $consumer->expects($this->once())
             ->method('consume')

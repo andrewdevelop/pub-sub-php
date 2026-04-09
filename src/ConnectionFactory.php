@@ -19,20 +19,21 @@ class ConnectionFactory
         $amqp_config->setConnectionName(sprintf("%s@%s-%s-%s", $config->service_id, gethostname(), $identifier, date('Ymd-His')));
 
         return new AMQPStreamConnection(
-            $config->host,
-            $config->port,
-            $config->login,
-            $config->password,
-            $config->vhost,
-            false,
-            'AMQPLAIN',
-            null,
-            'en_US',
-            (float) $config->connection_timeout,
-            (float) $config->connection_timeout,
-            null,
-            true,
-            (int) $config->heartbeat_timeout
+            host: $config->host,
+            port: $config->port,
+            user: $config->login,
+            password: $config->password,
+            vhost: $config->vhost,
+            insist: false,
+            login_method: 'AMQPLAIN',
+            login_response: null,
+            locale: 'en_US',
+            connection_timeout: $config->connection_timeout,
+            read_write_timeout: $config->connection_timeout,
+            context: null,
+            keepalive: true,
+            heartbeat:  $config->heartbeat_timeout,
+            config: $amqp_config
         );
     }
 }
