@@ -15,7 +15,7 @@
     "illuminate/console": "^9.0|^10.0",
     "illuminate/config": "^9.0|^10.0",
     "ramsey/uuid": "^4.7",
-    "psr/log": "^1.1",
+    "psr/log": "*",
     "ext-pcntl": "*",
     "ext-json": "*"
   },
