@@ -16,9 +16,10 @@ final class InternalConfig
         public readonly bool   $with_dlq = false,
         public readonly int    $max_retries = 5,
         public readonly int    $retry_delay_sec = 10,
-        public readonly int    $dlq_message_ttl_sec = 0, // 0 means messages won't expire in DLQ
+        public readonly int    $dlq_message_ttl_sec = 0,
         public readonly int    $connection_timeout = 120,
         public readonly int    $heartbeat_timeout = 60,
+        public readonly int    $restart_timeout = 30,
     )
     {
     }
@@ -57,6 +58,8 @@ final class InternalConfig
         $connection_timeout = $config['connection_timeout'] ?? 120;
         /** @var int $heartbeat_timeout */
         $heartbeat_timeout = $config['heartbeat_timeout'] ?? 60;
+        /** @var int $restart_timeout */
+        $restart_timeout = $config['restart_timeout'] ?? 30;
 
         return new self(
             host: $host,
@@ -73,6 +76,7 @@ final class InternalConfig
             dlq_message_ttl_sec: $dlq_message_ttl_sec,
             connection_timeout: $connection_timeout,
             heartbeat_timeout: $heartbeat_timeout,
+            restart_timeout: $restart_timeout,
         );
     }
 }

@@ -33,7 +33,7 @@ class ConsumerTest extends TestCase
         );
     }
 
-    private function createConsumerMock($methods = ['connect', 'setupTopology', 'reconnect'])
+    private function createConsumerMock($methods = ['connect', 'setupTopology'])
     {
         $consumer = $this->getMockBuilder(Consumer::class)
             ->setConstructorArgs([$this->config])
@@ -73,7 +73,7 @@ class ConsumerTest extends TestCase
 
     public function testHandleMessageSuccess()
     {
-        $consumer = $this->createConsumerMock();
+        $consumer = $this->createConsumerMock(['connect', 'setupTopology']);
         $channelMock = $this->createMock(AMQPChannel::class);
         $this->setChannel($consumer, $channelMock);
 
@@ -96,7 +96,7 @@ class ConsumerTest extends TestCase
 
     public function testHandleMessageLoopbackPrevention()
     {
-        $consumer = $this->createConsumerMock();
+        $consumer = $this->createConsumerMock(['connect', 'setupTopology']);
         $channelMock = $this->createMock(AMQPChannel::class);
         $this->setChannel($consumer, $channelMock);
 
@@ -120,7 +120,7 @@ class ConsumerTest extends TestCase
 
     public function testHandleMessageFailureSendsToRetry()
     {
-        $consumer = $this->createConsumerMock();
+        $consumer = $this->createConsumerMock(['connect', 'setupTopology']);
         $channelMock = $this->createMock(AMQPChannel::class);
         $this->setChannel($consumer, $channelMock);
 
@@ -148,7 +148,7 @@ class ConsumerTest extends TestCase
 
     public function testHandleMessageFailureSendsToDlqAfterMaxRetries()
     {
-        $consumer = $this->createConsumerMock();
+        $consumer = $this->createConsumerMock(['connect', 'setupTopology']);
         $channelMock = $this->createMock(AMQPChannel::class);
         $this->setChannel($consumer, $channelMock);
 

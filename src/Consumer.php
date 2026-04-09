@@ -14,10 +14,7 @@ class Consumer implements ConsumerContract
     use HandlesLoggingTrait;
     use HandlesMessageHeadersTrait;
 
-    protected bool $shouldQuit = false;
-    protected bool $shouldRestart = false;
-    protected ?string $consumerTag = null;
-    protected bool $signalHandlingEnabled = false;
+    protected bool $forceShutdown = false;
 
     public function __construct(
         protected readonly InternalConfig $config,
@@ -25,79 +22,65 @@ class Consumer implements ConsumerContract
     {
     }
 
-    public function consume(callable $callback, int $timeoutSeconds = 0, bool $enableSignalHandling = true): mixed
+    /**
+     * @throws \Throwable
+     */
+    public function consume(callable $callback, int $timeoutSeconds = 3600): mixed
     {
-        $this->signalHandlingEnabled = $enableSignalHandling && extension_loaded('pcntl');
-        
-        if ($this->signalHandlingEnabled) {
-            pcntl_async_signals(true);
-            $this->setupSignals();
+        if (extension_loaded('pcntl')) {
+            $this->registerSignalHandlers($timeoutSeconds);
         }
-        $startTime = time();
+
         $this->connect($this->config);
-        $this->setupTopology($this->config);
+        $this->setupTopology();
 
-        do {
-            $queueName = $this->getMainQueueName();
-
-            if ($timeoutSeconds > 0) {
-                $remaining = $timeoutSeconds - (time() - $startTime);
-                if ($remaining <= 0) {
-                    break;
-                }
+        $handler = function (AMQPMessage $message) use ($callback) {
+            if (extension_loaded('pcntl')) {
+                pcntl_sigprocmask(SIG_BLOCK, [SIGTERM, SIGINT]);
             }
 
-            $this->logger?->info("starting consumer on queue: {$queueName}");
+            $this->handleMessage($message, $callback);
 
-            $this->channel->basic_qos(null, 1, false);
-            $this->channel->basic_consume(
-                $queueName,
-                $this->generateConsumerTag(),
-                false,
-                false,
-                false,
-                false,
-                function (AMQPMessage $message) use ($callback) {
-                    $this->handleMessage($message, $callback);
-                },
-                null,
-                ['x-cancel-on-ha-failover' => ['t', true]]
-            );
+            if (extension_loaded('pcntl')) {
+                pcntl_sigprocmask(SIG_UNBLOCK, [SIGTERM, SIGINT]);
+                pcntl_signal_dispatch();
+            }
+        };
 
-            while ($this->channel->is_consuming() && !$this->shouldQuit) {
-                if ($this->signalHandlingEnabled) {
-                    pcntl_signal_dispatch();
-                }
+        $queueName = $this->getMainQueueName();
+        $this->logger?->info("starting consumer on queue: {$queueName}" . ($timeoutSeconds ? " (timeout {$timeoutSeconds}s)" : ''));
 
-                if ($this->shouldQuit) {
-                    break;
-                }
+        $this->channel->basic_consume(
+            $queueName,
+            $this->generateConsumerTag(),
+            false,
+            false,
+            false,
+            false,
+            $handler,
+            null,
+            ['x-cancel-on-ha-failover' => ['t', true]]
+        );
 
-                if ($timeoutSeconds > 0 && (time() - $startTime) >= $timeoutSeconds) {
-                    break;
-                }
+        $this->logger?->info("waiting for messages");
 
-                try {
-                    $waitTimeout = $timeoutSeconds > 0 ? min($timeoutSeconds - (time() - $startTime), $this->config->connection_timeout) : $this->config->connection_timeout;
-                    
-                    $this->channel->wait(null, false, (float)$waitTimeout);
-                } catch (\PhpAmqpLib\Exception\AMQPConnectionClosedException|\PhpAmqpLib\Exception\AMQPIOException $e) {
-                    $this->logger?->warning("connection lost, attempting to reconnect: " . $e->getMessage());
-                    $this->reconnect();
-                    break;
-                } catch (\PhpAmqpLib\Exception\AMQPTimeoutException $e) {
-                    if ($timeoutSeconds > 0 && (time() - $startTime) >= $timeoutSeconds) {
-                        break;
-                    }
-                }
+        while ($this->channel->is_open() && !$this->forceShutdown) {
+            try {
+                $this->channel->wait();
+            } catch (\PhpAmqpLib\Exception\AMQPConnectionClosedException|\PhpAmqpLib\Exception\AMQPIOException $e) {
+                $this->logger?->warning("connection lost: " . $e->getMessage());
+                break;
             }
 
-            if ($this->shouldQuit) {
-                $this->close();
+            if (extension_loaded('pcntl')) {
+                pcntl_signal_dispatch();
             }
-        } while (!$this->shouldQuit && $this->shouldRestart && ($timeoutSeconds <= 0 || (time() - $startTime) < $timeoutSeconds));
+        }
 
-        return null;
+        $this->close();
+        $this->logger?->info("consumer stopped");
+
+        exit(0);
     }
 
     private function handleMessage(AMQPMessage $message, callable $callback): void
@@ -155,8 +138,6 @@ class Consumer implements ConsumerContract
         $retryExchange = $this->getRetryExchangeName();
         $mainQueue = $this->getMainQueueName();
 
-        // Publish to retry exchange with routing key = main queue
-        // This goes to retry queue briefly, then DLX routes to main queue after TTL
         $this->channel->basic_publish(
             $requeue,
             $retryExchange,
@@ -195,35 +176,54 @@ class Consumer implements ConsumerContract
         $message->ack();
     }
 
-    private function reconnect(): void
+    private function registerSignalHandlers(int $timeout): void
     {
-        $this->close();
-        $this->connect($this->config);
-        $this->shouldRestart = true;
+        pcntl_async_signals(true);
+
+        pcntl_signal(SIGTERM, [$this, 'handleSignals']);
+        pcntl_signal(SIGINT, [$this, 'handleSignals']);
+        pcntl_signal(SIGQUIT, [$this, 'handleSignals']);
+        pcntl_signal(SIGHUP, [$this, 'handleSignals']);
+
+        pcntl_signal(SIGALRM, function () use ($timeout) {
+            $this->logger?->info("consumer stopping due to time limit of {$timeout}s.");
+            $this->forceShutdown = true;
+        });
+        pcntl_alarm($timeout);
     }
 
-    private function setupSignals(): void
+    public function handleSignals(int $signal): void
     {
-        if (!extension_loaded('pcntl')) return;
+        $this->logger?->info("signal $signal received");
 
-        pcntl_signal(SIGTERM, [$this, 'signalHandler']);
-        pcntl_signal(SIGINT, [$this, 'signalHandler']);
-        pcntl_signal(SIGQUIT, [$this, 'signalHandler']);
-        pcntl_signal(SIGHUP, [$this, 'signalHandler']);
-    }
-
-    public function signalHandler(int $signalNumber): void
-    {
-        match ($signalNumber) {
-            SIGTERM, SIGQUIT, SIGINT => $this->shouldQuit = true,
-            SIGHUP => $this->shouldRestart = true,
-            default => null,
+        match ($signal) {
+            SIGTERM, SIGINT, SIGQUIT => $this->shutdownAndExit($signal, 0),
+            SIGHUP => $this->shutdownAndExit($signal, 1),
+            default => $this->logger?->error("unknown signal $signal received"),
         };
+    }
+
+    private function shutdownAndExit(int $signal, int $exitCode): void
+    {
+        $this->forceShutdown = true;
+        $this->close();
+
+        if (extension_loaded('pcntl')) {
+            pcntl_signal($signal, SIG_DFL);
+            if (extension_loaded('posix')) {
+                posix_kill(getmypid(), $signal);
+            }
+        }
+
+        $this->logger?->info("waiting {$this->config->restart_timeout}s before restart or close");
+        sleep($this->config->restart_timeout);
+
+        exit($exitCode);
     }
 
     private function generateConsumerTag(): string
     {
-        return $this->consumerTag ??= sprintf(
+        return sprintf(
             'consumer-%s-%s',
             $this->config->service_id,
             bin2hex(random_bytes(4))
