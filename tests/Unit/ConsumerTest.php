@@ -37,7 +37,7 @@ class ConsumerTest extends TestCase
     {
         $consumer = $this->getMockBuilder(Consumer::class)
             ->setConstructorArgs([$this->config])
-            ->onlyMethods($methods)
+            ->onlyMethods(array_unique(array_merge($methods, ['terminate'])))
             ->getMock();
 
         return $consumer;
@@ -59,14 +59,15 @@ class ConsumerTest extends TestCase
 
         $consumer->expects($this->once())->method('connect');
         $consumer->expects($this->once())->method('setupTopology');
-        
-        $channelMock->expects($this->once())->method('basic_qos');
+
         $channelMock->expects($this->once())->method('basic_consume');
-        $channelMock->method('is_consuming')->willReturn(true);
-        $channelMock->method('wait')->willThrowException(new \PhpAmqpLib\Exception\AMQPTimeoutException("timeout"));
+        $channelMock->method('is_open')->willReturn(true);
+        $channelMock->method('wait')->willThrowException(
+            new \PhpAmqpLib\Exception\AMQPConnectionClosedException("connection closed")
+        );
 
         $consumer->consume(function() {}, 1);
-        
+
         // Exited gracefully
         $this->assertTrue(true);
     }

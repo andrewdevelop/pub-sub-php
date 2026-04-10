@@ -4,81 +4,59 @@ namespace Core\Messaging;
 
 class RabbitMqHttpClient
 {
-    private string $baseUrl;
-    private $context;
+    private string $apiBase;
+    private string $vhost;
+    private string $authHeader;
 
     public function __construct(string $host, int $amqpPort, string $user, string $pass, string $vhost)
     {
         // Standard mapping: AMQP 5672 -> HTTP 15672
         $apiPort = $amqpPort + 10000;
-        $this->baseUrl = "http://{$host}:{$apiPort}/api";
-        $vhostEncoded = urlencode($vhost);
-        $this->baseUrl .= "/exchanges/{$vhostEncoded}"; // Base for exchanges, queues are slightly different
-
-        $this->context = stream_context_create([
-            'http' => [
-                'header' => "Authorization: Basic " . base64_encode("{$user}:{$pass}"),
-                'ignore_errors' => true,
-            ]
-        ]);
+        $this->apiBase = "http://{$host}:{$apiPort}/api";
+        $this->vhost = $vhost;
+        $this->authHeader = "Authorization: Basic " . base64_encode("{$user}:{$pass}");
     }
 
-    private function getBaseUrlFor(string $type, string $vhost): string
+    private function request(string $method, string $url, ?string $body = null): string|false
     {
-        $apiPort = parse_url($this->baseUrl, PHP_URL_PORT);
-        $host = parse_url($this->baseUrl, PHP_URL_HOST);
-        return "http://{$host}:{$apiPort}/api/{$type}/" . urlencode($vhost);
+        $options = [
+            'http' => [
+                'method'        => $method,
+                'header'        => $this->authHeader,
+                'ignore_errors' => true,
+            ]
+        ];
+        if ($body !== null) {
+            $options['http']['content'] = $body;
+            $options['http']['header'] .= "\r\nContent-Type: application/json";
+        }
+        return file_get_contents($url, false, stream_context_create($options));
     }
 
     public function deleteExchange(string $name): void
     {
-        $vhost = urldecode(basename($this->baseUrl));
-        $url = $this->getBaseUrlFor('exchanges', $vhost) . '/' . urlencode($name);
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'DELETE',
-                'header' => "Authorization: Basic " . explode(' ', stream_context_get_options($this->context)['http']['header'])[2],
-                'ignore_errors' => true,
-            ]
-        ]);
-        file_get_contents($url, false, $context);
+        $url = $this->apiBase . '/exchanges/' . urlencode($this->vhost) . '/' . urlencode($name);
+        $this->request('DELETE', $url);
     }
 
     public function listQueues(): array
     {
-        $vhost = urldecode(basename($this->baseUrl));
-        $url = $this->getBaseUrlFor('queues', $vhost);
-        $res = file_get_contents($url, false, $this->context);
+        $url = $this->apiBase . '/queues/' . urlencode($this->vhost);
+        $res = $this->request('GET', $url);
         if (!$res) return [];
         return json_decode($res, true) ?? [];
     }
 
     public function deleteQueue(string $name): void
     {
-        $vhost = urldecode(basename($this->baseUrl));
-        $url = $this->getBaseUrlFor('queues', $vhost) . '/' . urlencode($name);
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'DELETE',
-                'header' => "Authorization: Basic " . explode(' ', stream_context_get_options($this->context)['http']['header'])[2],
-                'ignore_errors' => true,
-            ]
-        ]);
-        file_get_contents($url, false, $context);
+        $url = $this->apiBase . '/queues/' . urlencode($this->vhost) . '/' . urlencode($name);
+        $this->request('DELETE', $url);
     }
 
     public function purgeQueue(string $name): void
     {
-        $vhost = urldecode(basename($this->baseUrl));
-        $url = $this->getBaseUrlFor('queues', $vhost) . '/' . urlencode($name) . '/contents';
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'DELETE',
-                'header' => "Authorization: Basic " . explode(' ', stream_context_get_options($this->context)['http']['header'])[2],
-                'ignore_errors' => true,
-            ]
-        ]);
-        file_get_contents($url, false, $context);
+        $url = $this->apiBase . '/queues/' . urlencode($this->vhost) . '/' . urlencode($name) . '/contents';
+        $this->request('DELETE', $url);
     }
 
     public function deleteAllQueuesMatching(string $pattern): void
@@ -91,44 +69,28 @@ class RabbitMqHttpClient
             }
         }
     }
-    
+
     public function queueExists(string $name): bool
     {
-        $vhost = urldecode(basename($this->baseUrl));
-        $url = $this->getBaseUrlFor('queues', $vhost) . '/' . urlencode($name);
-        $res = file_get_contents($url, false, $this->context);
+        $url = $this->apiBase . '/queues/' . urlencode($this->vhost) . '/' . urlencode($name);
+        $res = $this->request('GET', $url);
         if (!$res) return false;
-        
-        $http_response_header = $http_response_header ?? [];
-        if (!empty($http_response_header) && strpos($http_response_header[0], '404') !== false) {
-            return false;
-        }
-        return true;
+
+        $data = json_decode($res, true);
+        return isset($data['name']);
     }
 
     public function listConnections(): array
     {
-        $apiPort = parse_url($this->baseUrl, PHP_URL_PORT);
-        $host = parse_url($this->baseUrl, PHP_URL_HOST);
-        $url = "http://{$host}:{$apiPort}/api/connections";
-        $res = file_get_contents($url, false, $this->context);
+        $url = $this->apiBase . '/connections';
+        $res = $this->request('GET', $url);
         if (!$res) return [];
         return json_decode($res, true) ?? [];
     }
 
     public function deleteConnection(string $name): void
     {
-        $apiPort = parse_url($this->baseUrl, PHP_URL_PORT);
-        $host = parse_url($this->baseUrl, PHP_URL_HOST);
-        $url = "http://{$host}:{$apiPort}/api/connections/" . urlencode($name);
-        
-        $context = stream_context_create([
-            'http' => [
-                'method' => 'DELETE',
-                'header' => "Authorization: Basic " . explode(' ', stream_context_get_options($this->context)['http']['header'])[2],
-                'ignore_errors' => true,
-            ]
-        ]);
-        file_get_contents($url, false, $context);
+        $url = $this->apiBase . '/connections/' . urlencode($name);
+        $this->request('DELETE', $url);
     }
 }

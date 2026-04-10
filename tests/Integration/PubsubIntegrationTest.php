@@ -13,6 +13,17 @@ use PhpAmqpLib\Connection\AMQPStreamConnection;
 use PhpAmqpLib\Channel\AMQPChannel;
 use PHPUnit\Framework\TestCase;
 
+/**
+ * Consumer subclass that does NOT call exit(), so it can be used in tests.
+ */
+class TestConsumer extends Consumer
+{
+    protected function terminate(int $code): void
+    {
+        // Do nothing — prevent exit() from killing the test process
+    }
+}
+
 class PubsubIntegrationTest extends TestCase
 {
     private string $host = '127.0.0.1';
@@ -141,7 +152,7 @@ class PubsubIntegrationTest extends TestCase
         $configB = $this->createConfig(self::SERVICE_B);
 
         // Pre-create topology for Service A so it's bound before publishing
-        $dummyConsumer = new Consumer($configA);
+        $dummyConsumer = new TestConsumer($configA);
         // Connect and setup topology manually
         $reflection = new \ReflectionClass(Consumer::class);
         $connectMethod = $reflection->getMethod('connect');
@@ -163,7 +174,7 @@ class PubsubIntegrationTest extends TestCase
 
         // Consume with service A - should get the message
         $msgsA = [];
-        $consumerA = new Consumer($configA);
+        $consumerA = new TestConsumer($configA);
         $consumerA->consume(function($msg) use (&$msgsA) {
             $msgsA[] = json_decode($msg->getBody(), true);
         }, 2);
@@ -247,7 +258,7 @@ class PubsubIntegrationTest extends TestCase
 
         // Now consume with SAME service - message should be ignored (loopback)
         $msgs = [];
-        $consumer = new Consumer($configA);
+        $consumer = new TestConsumer($configA);
         $consumer->consume(function($msg) use (&$msgs) {
             $msgs[] = json_decode($msg->getBody(), true);
         }, 2);
@@ -269,7 +280,7 @@ class PubsubIntegrationTest extends TestCase
         $configB = $this->createConfig(self::SERVICE_B);
         
         // Pre-create topology for B to ensure the retry queue exists and is bound
-        $dummyConsumer = new Consumer($configB);
+        $dummyConsumer = new TestConsumer($configB);
         $reflection = new \ReflectionClass(Consumer::class);
         $connectMethod = $reflection->getMethod('connect');
         $connectMethod->setAccessible(true);
@@ -280,7 +291,7 @@ class PubsubIntegrationTest extends TestCase
         $dummyConsumer->close();
         
         // Ensure A is completely disconnected so we know B's queue is bound
-        $dummyConsumer = new Consumer($configA);
+        $dummyConsumer = new TestConsumer($configA);
         $connectMethod->invoke($dummyConsumer, $configA);
         $setupMethod->invoke($dummyConsumer);
         $dummyConsumer->close();
@@ -291,7 +302,7 @@ class PubsubIntegrationTest extends TestCase
 
         // Consume and fail
         $attempts = 0;
-        $consumer = new Consumer($configB);
+        $consumer = new TestConsumer($configB);
         
         // Wait up to 5 seconds to get the message 2 times (1 original + 1 retry)
         $consumer->consume(function($msg) use (&$attempts) {
@@ -328,7 +339,7 @@ class PubsubIntegrationTest extends TestCase
         );
         
         // Pre-create topology for B
-        $dummyConsumer = new Consumer($configB);
+        $dummyConsumer = new TestConsumer($configB);
         $reflection = new \ReflectionClass(Consumer::class);
         $connectMethod = $reflection->getMethod('connect');
         $connectMethod->setAccessible(true);
@@ -339,7 +350,7 @@ class PubsubIntegrationTest extends TestCase
         $dummyConsumer->close();
         
         // Ensure A is completely disconnected so we know B's queue is bound
-        $dummyConsumer = new Consumer($configA);
+        $dummyConsumer = new TestConsumer($configA);
         $connectMethod->invoke($dummyConsumer, $configA);
         $setupMethod->invoke($dummyConsumer);
         $dummyConsumer->close();
@@ -349,7 +360,7 @@ class PubsubIntegrationTest extends TestCase
         $publisher->close();
 
         $attempts = 0;
-        $consumer = new Consumer($configB);
+        $consumer = new TestConsumer($configB);
         
         // Timeout 5s, will fail once, then retry once, then go to DLQ
         $consumer->consume(function($msg) use (&$attempts) {
@@ -392,7 +403,7 @@ class PubsubIntegrationTest extends TestCase
         $configB = $this->createConfig(self::SERVICE_B);
 
         // Pre-create topology for Service B
-        $dummyConsumer = new Consumer($configB);
+        $dummyConsumer = new TestConsumer($configB);
         $reflection = new \ReflectionClass(Consumer::class);
         $connectMethod = $reflection->getMethod('connect');
         $connectMethod->setAccessible(true);
@@ -403,7 +414,7 @@ class PubsubIntegrationTest extends TestCase
         $dummyConsumer->close();
         
         // Ensure A is completely disconnected so we know B's queue is bound
-        $dummyConsumer = new Consumer($configA);
+        $dummyConsumer = new TestConsumer($configA);
         $connectMethod->invoke($dummyConsumer, $configA);
         $setupMethod->invoke($dummyConsumer);
         $dummyConsumer->close();
@@ -429,7 +440,7 @@ class PubsubIntegrationTest extends TestCase
 
         // Now start the consumer to read it
         $msgs = [];
-        $consumer = new Consumer($configB);
+        $consumer = new TestConsumer($configB);
         $consumer->consume(function($msg) use (&$msgs) {
             $msgs[] = json_decode($msg->getBody(), true);
         }, 3); // 3 seconds timeout is enough since message is already there

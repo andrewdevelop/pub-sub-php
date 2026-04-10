@@ -80,7 +80,14 @@ class Consumer implements ConsumerContract
         $this->close();
         $this->logger?->info("consumer stopped");
 
-        exit(0);
+        $this->terminate(0);
+
+        return null;
+    }
+
+    protected function terminate(int $code): void
+    {
+        exit($code);
     }
 
     private function handleMessage(AMQPMessage $message, callable $callback): void
@@ -218,7 +225,7 @@ class Consumer implements ConsumerContract
         $this->logger?->info("waiting {$this->config->restart_timeout}s before restart or close");
         sleep($this->config->restart_timeout);
 
-        exit($exitCode);
+        $this->terminate($exitCode);
     }
 
     private function generateConsumerTag(): string
