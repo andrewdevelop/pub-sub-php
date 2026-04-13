@@ -90,7 +90,7 @@ class Consumer implements ConsumerContract
         exit($code);
     }
 
-    private function handleMessage(AMQPMessage $message, callable $callback): void
+    protected function handleMessage(AMQPMessage $message, callable $callback): void
     {
         $publisherServiceId = $this->getHeader($message, MessageHeaders::SERVICE_ID);
 
@@ -111,7 +111,7 @@ class Consumer implements ConsumerContract
         }
     }
 
-    private function handleFailure(AMQPMessage $message, \Throwable $e): void
+    protected function handleFailure(AMQPMessage $message, \Throwable $e): void
     {
         $this->logger?->error("Message processing failed: " . $e->getMessage());
 
@@ -131,7 +131,7 @@ class Consumer implements ConsumerContract
     private function sendToRetry(AMQPMessage $message, int $retryCount, array $headers): void
     {
         $headers[MessageHeaders::RETRY_COUNT] = $retryCount;
-        
+
         $requeue = new AMQPMessage(
             $message->getBody(),
             [

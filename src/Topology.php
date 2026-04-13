@@ -13,7 +13,7 @@ class Topology
         AMQPChannel $channel,
         string      $main_exchange,
         string      $main_queue,
-        string      $retry_exchange,
+        ?string     $retry_exchange,
         ?string     $retry_queue,
         ?string     $dead_letter_queue,
         int         $retry_delay_sec = 10,
@@ -29,7 +29,7 @@ class Topology
         );
         $arguments = [];
 
-        $with_dlq = !is_null($retry_queue) && !is_null($dead_letter_queue);
+        $with_dlq = !empty($retry_exchange) && !empty($retry_queue) && !empty($dead_letter_queue);
 
         if ($with_dlq) {
             // Declare Retry Exchange (Direct)
@@ -54,7 +54,7 @@ class Topology
                 $dlq_args_arr['x-message-ttl'] = $dlq_message_ttl_sec * 1000;
             }
             $dlq_args = empty($dlq_args_arr) ? [] : new AMQPTable($dlq_args_arr);
-            
+
             // Queue declare with or without arguments depending on if they are empty
             if (empty($dlq_args_arr)) {
                 $channel->queue_declare($dead_letter_queue, false, true, false, false, false);
@@ -71,7 +71,7 @@ class Topology
         // Only pass AMQPTable when there are arguments to avoid "AMQP-rabbit doesn't define data of type []" error
         if (!empty($arguments)) {
             $queueArgs = new AMQPTable($arguments);
-            
+
             try {
                 $channel->queue_declare(
                     queue: $main_queue,
@@ -88,7 +88,7 @@ class Topology
                     } catch (\Throwable $deleteError) {
                         // Ignore delete errors, proceed with creation
                     }
-                    
+
                     // Now create with correct arguments
                     $channel->queue_declare(
                         queue: $main_queue,
@@ -109,7 +109,7 @@ class Topology
                 auto_delete: false
             );
         }
-        
+
         $channel->queue_bind(
             queue: $main_queue,
             exchange: $main_exchange,

@@ -37,9 +37,9 @@ trait HandlesConnectionTrait
             channel: $this->channel,
             main_exchange: $this->getMainExchangeName(),
             main_queue: $this->getMainQueueName(),
-            retry_exchange: $this->getRetryExchangeName(),
-            retry_queue: $this->getRetryQueueName(),
-            dead_letter_queue: $this->getDlqQueueName(),
+            retry_exchange: $this->config->with_dlq ? $this->getRetryExchangeName() : null,
+            retry_queue: $this->config->with_dlq ? $this->getRetryQueueName() : null,
+            dead_letter_queue: $this->config->with_dlq ? $this->getDlqQueueName() : null,
             retry_delay_sec: $this->config->retry_delay_sec,
             dlq_message_ttl_sec: $this->config->dlq_message_ttl_sec
         );
