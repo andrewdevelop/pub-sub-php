@@ -97,7 +97,6 @@ class Consumer implements ConsumerContract
         if ($publisherServiceId !== null && (string)$publisherServiceId === (string)$this->config->service_id) {
             $isRetry = (int)$this->getHeader($message, MessageHeaders::RETRY_COUNT, 0) > 0;
             if (!$isRetry) {
-                $this->logger?->info("Ignoring message from same service (loopback prevention)");
                 $message->ack();
                 return;
             }
@@ -113,18 +112,16 @@ class Consumer implements ConsumerContract
 
     protected function handleFailure(AMQPMessage $message, \Throwable $e): void
     {
-        $this->logger?->error("Message processing failed: " . $e->getMessage());
+        $this->logger?->error("message processing failed: " . $e->getMessage());
 
         $retryCount = (int)$this->getHeader($message, MessageHeaders::RETRY_COUNT, 0);
         $retryCount++;
 
         if ($retryCount >= $this->config->max_retries) {
-            $this->logger?->info("Sending to DLQ. Retry count: " . $retryCount);
             $this->sendToDlq($message, $retryCount, $this->getHeaders($message));
             return;
         }
 
-        $this->logger?->info("Sending to Retry. Retry count: " . $retryCount);
         $this->sendToRetry($message, $retryCount, $this->getHeaders($message));
     }
 
@@ -150,9 +147,10 @@ class Consumer implements ConsumerContract
             $retryExchange,
             $mainQueue,
         );
-        $this->logger?->info("Published to retry exchange $retryExchange with routing key $mainQueue");
 
         $message->ack();
+
+        $this->logger?->info("published to retry exchange $retryExchange with routing key $mainQueue");
     }
 
     private function sendToDlq(AMQPMessage $message, int $retryCount, array $headers): void
@@ -181,6 +179,8 @@ class Consumer implements ConsumerContract
         );
 
         $message->ack();
+
+        $this->logger?->info("published to DLQ $dlqQueue after {$retryCount} retries");
     }
 
     private function registerSignalHandlers(int $timeout): void
