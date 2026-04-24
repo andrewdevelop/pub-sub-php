@@ -64,7 +64,7 @@ trait HandlesConnectionTrait
         $this->channel = null;
         $this->connection = null;
 
-        $this->logger?->info("connection closed");
+        $this->logger?->debug("connection closed");
     }
 
     public function getChannel(): ?AMQPChannel
