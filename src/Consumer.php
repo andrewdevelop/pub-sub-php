@@ -133,8 +133,8 @@ class Consumer implements ConsumerContract
             $message->getBody(),
             [
                 'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
-                'content_type' => $message->get('content_type'),
-                'message_id' => $message->get('message_id'),
+                'content_type' => $message->has('content_type') ? $message->get('content_type') : 'text/plain',
+                'message_id' => $message->has('message_id') ? $message->get('message_id') : uniqid('', true),
                 'application_headers' => new AMQPTable($headers),
             ]
         );
@@ -161,8 +161,8 @@ class Consumer implements ConsumerContract
             $message->getBody(),
             [
                 'delivery_mode' => AMQPMessage::DELIVERY_MODE_PERSISTENT,
-                'content_type' => $message->get('content_type'),
-                'message_id' => $message->get('message_id'),
+                'content_type' => $message->has('content_type') ? $message->get('content_type') : 'text/plain',
+                'message_id' => $message->has('message_id') ? $message->get('message_id') : uniqid('', true),
                 'expiration' => $this->config->dlq_message_ttl_sec > 0
                     ? (string)($this->config->dlq_message_ttl_sec * 1000)
                     : null,
